@@ -10,7 +10,6 @@ const port = Number(process.env.PORT || 4000);
 
 // --------------------------------------------------
 // CORS CONFIGURATION
-// Allows local development and deployed Vercel website.
 // --------------------------------------------------
 
 const allowedOrigins = new Set([
@@ -24,7 +23,6 @@ const allowedOrigins = new Set([
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests without an Origin header, such as health checks.
     if (!origin || allowedOrigins.has(origin)) {
       return callback(null, true);
     }
@@ -43,19 +41,34 @@ app.use(express.json({ limit: '32kb' }));
 // AI PROVIDER CONFIGURATION
 // --------------------------------------------------
 
-const AI_PROVIDER = (process.env.AI_PROVIDER || 'ollama').toLowerCase();
+// Use Ollama Cloud by default.
+const AI_PROVIDER = (
+  process.env.AI_PROVIDER || 'ollama'
+).toLowerCase();
 
-const ollamaClient = new OpenAI({
-  apiKey: 'ollama',
-  baseURL: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434/v1'
-});
+const OLLAMA_BASE_URL =
+  process.env.OLLAMA_BASE_URL || 'https://ollama.com/v1';
 
+const OLLAMA_MODEL =
+  process.env.OLLAMA_MODEL || 'gemma4:31b';
+
+// Ollama Cloud requires an API key.
+// Keep this key in Render Environment Variables.
+const ollamaClient = process.env.OLLAMA_API_KEY
+  ? new OpenAI({
+      apiKey: process.env.OLLAMA_API_KEY,
+      baseURL: OLLAMA_BASE_URL
+    })
+  : null;
+
+// Optional OpenAI configuration, if you ever want to switch back.
 const openaiClient = process.env.OPENAI_API_KEY
   ? new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     })
   : null;
 
+// Select the AI client.
 const aiClient =
   AI_PROVIDER === 'ollama'
     ? ollamaClient
@@ -63,16 +76,19 @@ const aiClient =
       ? openaiClient
       : null;
 
+// Select the model.
 const aiModel =
   AI_PROVIDER === 'ollama'
-    ? (process.env.OLLAMA_MODEL || 'llama3.2:3b')
-    : (process.env.OPENAI_MODEL || 'gpt-4o-mini');
+    ? OLLAMA_MODEL
+    : process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 // --------------------------------------------------
 // MONGODB CONFIGURATION
 // --------------------------------------------------
 
-const mongoClient = new MongoClient(process.env.MONGODB_URI || '');
+const mongoClient = new MongoClient(
+  process.env.MONGODB_URI || ''
+);
 
 let profiles;
 let conversations;
@@ -115,7 +131,10 @@ const AMU_PROFILE = {
   updatedAt: new Date()
 };
 
-// Connect to MongoDB.
+// --------------------------------------------------
+// CONNECT TO MONGODB
+// --------------------------------------------------
+
 async function connectDatabase() {
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI is missing.');
@@ -174,7 +193,8 @@ app.post('/api/chat', async (req, res) => {
 
     if (!aiClient) {
       return res.status(503).json({
-        error: 'AI provider is not configured. Check AI_PROVIDER and API key.'
+        error:
+          'AI provider is not configured. Check AI_PROVIDER and API key.'
       });
     }
 
@@ -198,7 +218,8 @@ app.post('/api/chat', async (req, res) => {
 
     if (!sessionId || !requestId) {
       return res.status(400).json({
-        error: 'Missing chat session information. Refresh the page and try again.'
+        error:
+          'Missing chat session information. Refresh the page and try again.'
       });
     }
 
@@ -227,14 +248,19 @@ app.post('/api/chat', async (req, res) => {
     });
 
     if (!profile) {
-      throw new Error('Amu profile has not been initialized.');
+      throw new Error(
+        'Amu profile has not been initialized.'
+      );
     }
 
     // Load recent conversation history.
     const history = (existing?.messages || [])
       .slice(-20)
       .map(item => ({
-        role: item.role === 'assistant' ? 'assistant' : 'user',
+        role:
+          item.role === 'assistant'
+            ? 'assistant'
+            : 'user',
         content: String(item.content || '').slice(0, 3000)
       }));
 
@@ -287,10 +313,13 @@ Voice description: ${profile.voiceDescription || ''}.
       max_tokens: 700
     });
 
-    const reply = completion.choices?.[0]?.message?.content?.trim();
+    const reply =
+      completion.choices?.[0]?.message?.content?.trim();
 
     if (!reply) {
-      throw new Error('The AI returned an empty response.');
+      throw new Error(
+        'The AI returned an empty response.'
+      );
     }
 
     // Save user message and AI reply in MongoDB.
@@ -335,10 +364,14 @@ Voice description: ${profile.voiceDescription || ''}.
     });
 
   } catch (error) {
-    console.error('Chat error:', error?.message || error);
+    console.error(
+      'Chat error:',
+      error?.message || error
+    );
 
     return res.status(500).json({
-      error: 'BAWRA could not complete that message. Please try again.'
+      error:
+        'BAWRA could not complete that message. Please try again.'
     });
   }
 });
@@ -350,12 +383,21 @@ Voice description: ${profile.voiceDescription || ''}.
 connectDatabase()
   .then(() => {
     app.listen(port, '0.0.0.0', () => {
-      console.log(`BAWRA server listening on port ${port}`);
+      console.log(
+        `BAWRA server listening on port ${port}`
+      );
       console.log(`AI provider: ${AI_PROVIDER}`);
       console.log(`AI model: ${aiModel}`);
+      console.log(`AI base URL: ${
+        AI_PROVIDER === 'ollama'
+          ? OLLAMA_BASE_URL
+          : 'https://api.openai.com/v1'
+      }`);
     });
   })
   .catch(error => {
-    console.error(`BAWRA startup failed: ${error.message}`);
+    console.error(
+      `BAWRA startup failed: ${error.message}`
+    );
     process.exit(1);
   });
