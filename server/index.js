@@ -8,12 +8,41 @@ import { MongoClient } from 'mongodb';
 const app = express();
 const port = Number(process.env.PORT || 4000);
 
+// --------------------------------------------------
+// CORS CONFIGURATION
+// Allows local development and deployed Vercel website.
+// --------------------------------------------------
+
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'https://bawra-ai-companion.vercel.app',
+  ...(process.env.CLIENT_ORIGIN || '')
+    .split(',')
+    .map(origin => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+]);
+
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173'
+  origin: (origin, callback) => {
+    // Allow requests without an Origin header, such as health checks.
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error('Origin not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204
 }));
+
 app.use(express.json({ limit: '32kb' }));
 
-// AI provider configuration: Ollama (local) or OpenAI (cloud).
+// --------------------------------------------------
+// AI PROVIDER CONFIGURATION
+// --------------------------------------------------
+
 const AI_PROVIDER = (process.env.AI_PROVIDER || 'ollama').toLowerCase();
 
 const ollamaClient = new OpenAI({
@@ -22,18 +51,26 @@ const ollamaClient = new OpenAI({
 });
 
 const openaiClient = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    })
   : null;
 
-const aiClient = AI_PROVIDER === 'ollama'
-  ? ollamaClient
-  : AI_PROVIDER === 'openai'
-    ? openaiClient
-    : null;
+const aiClient =
+  AI_PROVIDER === 'ollama'
+    ? ollamaClient
+    : AI_PROVIDER === 'openai'
+      ? openaiClient
+      : null;
 
-const aiModel = AI_PROVIDER === 'ollama'
-  ? (process.env.OLLAMA_MODEL || 'llama3.2:3b')
-  : (process.env.OPENAI_MODEL || 'gpt-4o-mini');
+const aiModel =
+  AI_PROVIDER === 'ollama'
+    ? (process.env.OLLAMA_MODEL || 'llama3.2:3b')
+    : (process.env.OPENAI_MODEL || 'gpt-4o-mini');
+
+// --------------------------------------------------
+// MONGODB CONFIGURATION
+// --------------------------------------------------
 
 const mongoClient = new MongoClient(process.env.MONGODB_URI || '');
 
@@ -41,7 +78,7 @@ let profiles;
 let conversations;
 let dbReady = false;
 
-// Private starter profile. Stored only in MongoDB and never sent to the browser.
+// Private starter profile. Stored only in MongoDB.
 const AMU_PROFILE = {
   key: 'amu-primary',
   preferredName: 'Amu',
@@ -81,14 +118,14 @@ const AMU_PROFILE = {
 // Connect to MongoDB.
 async function connectDatabase() {
   if (!process.env.MONGODB_URI) {
-    throw new Error(
-      'MONGODB_URI is missing. Add your MongoDB connection string to server/.env.'
-    );
+    throw new Error('MONGODB_URI is missing.');
   }
 
   await mongoClient.connect();
 
-  const db = mongoClient.db(process.env.MONGODB_DB || 'bawra');
+  const db = mongoClient.db(
+    process.env.MONGODB_DB || 'bawra'
+  );
 
   profiles = db.collection('profiles');
   conversations = db.collection('conversations');
@@ -105,10 +142,14 @@ async function connectDatabase() {
   );
 
   dbReady = true;
+
   console.log('BAWRA connected to MongoDB.');
 }
 
-// Health check.
+// --------------------------------------------------
+// HEALTH CHECK
+// --------------------------------------------------
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -119,18 +160,21 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Chat API.
+// --------------------------------------------------
+// CHAT API
+// --------------------------------------------------
+
 app.post('/api/chat', async (req, res) => {
   try {
     if (!dbReady) {
       return res.status(503).json({
-        error: 'Database is not connected. Check MONGODB_URI in server/.env.'
+        error: 'Database is not connected. Check MONGODB_URI.'
       });
     }
 
     if (!aiClient) {
       return res.status(503).json({
-        error: 'AI provider is not configured. Check AI_PROVIDER in server/.env.'
+        error: 'AI provider is not configured. Check AI_PROVIDER and API key.'
       });
     }
 
@@ -159,7 +203,9 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Avoid processing the same request twice.
-    const existing = await conversations.findOne({ sessionId });
+    const existing = await conversations.findOne({
+      sessionId
+    });
 
     const previousRequest = existing?.messages?.find(
       item =>
@@ -244,7 +290,7 @@ Voice description: ${profile.voiceDescription || ''}.
     const reply = completion.choices?.[0]?.message?.content?.trim();
 
     if (!reply) {
-      throw new Error('The AI returned an empty response. Please try again.');
+      throw new Error('The AI returned an empty response.');
     }
 
     // Save user message and AI reply in MongoDB.
@@ -297,11 +343,14 @@ Voice description: ${profile.voiceDescription || ''}.
   }
 });
 
-// Start server after MongoDB connects.
+// --------------------------------------------------
+// START SERVER AFTER MONGODB CONNECTS
+// --------------------------------------------------
+
 connectDatabase()
   .then(() => {
-    app.listen(port, () => {
-      console.log(`BAWRA server listening on http://localhost:${port}`);
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`BAWRA server listening on port ${port}`);
       console.log(`AI provider: ${AI_PROVIDER}`);
       console.log(`AI model: ${aiModel}`);
     });
