@@ -38,49 +38,34 @@ app.use(cors({
 app.use(express.json({ limit: '32kb' }));
 
 // --------------------------------------------------
-// AI PROVIDER CONFIGURATION
+// AI PROVIDER CONFIGURATION - GROQ
 // --------------------------------------------------
 
-// Use Ollama Cloud by default.
 const AI_PROVIDER = (
-  process.env.AI_PROVIDER || 'ollama'
+  process.env.AI_PROVIDER || 'groq'
 ).toLowerCase();
 
-const OLLAMA_BASE_URL =
-  process.env.OLLAMA_BASE_URL || 'https://ollama.com/v1';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 
-const OLLAMA_MODEL =
-  process.env.OLLAMA_MODEL || 'gemma4:31b';
+const GROQ_MODEL =
+  process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 
-// Ollama Cloud requires an API key.
-// Keep this key in Render Environment Variables.
-const ollamaClient = process.env.OLLAMA_API_KEY
+// Groq API client.
+const groqClient = process.env.GROQ_API_KEY
   ? new OpenAI({
-      apiKey: process.env.OLLAMA_API_KEY,
-      baseURL: OLLAMA_BASE_URL
-    })
-  : null;
-
-// Optional OpenAI configuration, if you ever want to switch back.
-const openaiClient = process.env.OPENAI_API_KEY
-  ? new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: GROQ_BASE_URL
     })
   : null;
 
 // Select the AI client.
 const aiClient =
-  AI_PROVIDER === 'ollama'
-    ? ollamaClient
-    : AI_PROVIDER === 'openai'
-      ? openaiClient
-      : null;
+  AI_PROVIDER === 'groq'
+    ? groqClient
+    : null;
 
 // Select the model.
-const aiModel =
-  AI_PROVIDER === 'ollama'
-    ? OLLAMA_MODEL
-    : process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const aiModel = GROQ_MODEL;
 
 // --------------------------------------------------
 // MONGODB CONFIGURATION
@@ -194,7 +179,7 @@ app.post('/api/chat', async (req, res) => {
     if (!aiClient) {
       return res.status(503).json({
         error:
-          'AI provider is not configured. Check AI_PROVIDER and API key.'
+          'Groq AI is not configured. Check AI_PROVIDER and GROQ_API_KEY.'
       });
     }
 
@@ -299,7 +284,7 @@ Preferred communication: ${profile.preferredCommunication}.
 Voice description: ${profile.voiceDescription || ''}.
 `;
 
-    // Generate response using the selected AI provider.
+    // Generate response using Groq.
     const completion = await aiClient.chat.completions.create({
       model: aiModel,
       messages: [
@@ -318,7 +303,7 @@ Voice description: ${profile.voiceDescription || ''}.
 
     if (!reply) {
       throw new Error(
-        'The AI returned an empty response.'
+        'Groq returned an empty response.'
       );
     }
 
@@ -388,11 +373,7 @@ connectDatabase()
       );
       console.log(`AI provider: ${AI_PROVIDER}`);
       console.log(`AI model: ${aiModel}`);
-      console.log(`AI base URL: ${
-        AI_PROVIDER === 'ollama'
-          ? OLLAMA_BASE_URL
-          : 'https://api.openai.com/v1'
-      }`);
+      console.log(`AI base URL: ${GROQ_BASE_URL}`);
     });
   })
   .catch(error => {
